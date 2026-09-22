@@ -78,4 +78,4 @@ github-radar-bot/
 
 ## 📄 License
 
-This project is licensed under the MIT License — feel free to use, modify, and share it.
+This project is licensed under the Apache License 2.0 — you're free to use, modify, and distribute it (including commercially), as long as you retain the copyright notice and document any changes you make. See the [LICENSE](./LICENSE) file for full terms.
