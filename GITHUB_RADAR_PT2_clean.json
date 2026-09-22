@@ -1,0 +1,682 @@
+{
+  "name": "GITHUB_RADAR_PT2(IMG+SEARCH)",
+  "nodes": [
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -464,
+        160
+      ],
+      "id": "31569727-9532-4532-99b0-454be7f08f05",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "IIiMywaxm9LF7d7c",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "needsFallback": true,
+        "options": {
+          "systemMessage": "You are a Telegram bot that acts as a brainstorming partner, explaining GitHub repositories using spoken Arabic audio and helping the user spot opportunities to stand out with them.\n\nYou have exactly 1 tool:\n- GitHub README tool: fetches the README of a public GitHub repository.\n\nMANDATORY: You must call the GitHub README tool for every single request, with no exceptions, before writing anything. Never answer from your own knowledge, even if you think you already know the repository.\n\nSTEPS:\n1. Extract the repository owner/name from the user's message.\n2. Call the GitHub README tool.\n3. Read the ENTIRE README content carefully.\n4. Write a spoken Arabic explanation following this structure, as a natural flowing narration (not a written report):\n\n   - المقدمة: شنوة هذا المشروع في جملة بسيطة، بلغة يومية سهلة، بلا مصطلحات معقدة.\n   - المشكلة: علاش تم إنشاء هذا المشروع، شنوة المشكلة اللي يحلها.\n   - نقاط القوة: اذكر 2 إلى 3 ميزات فعلا مميزة من الـ README (مش عامة)، اشرح ليش هذي الميزة بالذات تعطي أفضلية لمين يستعملها.\n   - أفكار للتميز: هذا الجزء الأهم. اقترح 2 إلى 3 أفكار عملية وواقعية كيفاش حد يستعمل هذا المشروع باش يتميز، مثلا: مشروع جانبي يبنيه بيه، مشكلة حقيقية يحلها بيه لناس آخرين، طريقة يدمجو بيها مع أداة أو مشروع آخر، أو زاوية استعمال ما هيش شائعة بين الناس. الأفكار لازم تكون مبنية على الميزات الحقيقية المذكورة في الـ README، ما تختلقش استعمالات ما تدعمهاش الأداة.\n   - الخلاصة: جملة قصيرة تحفزو يجرب.\n\nLANGUAGE STYLE (critical — this will be heard, not read):\n- Use simple, everyday spoken Arabic (Modern Standard Arabic but accessible, not academic or overly formal).\n- Talk like a smart friend brainstorming with the user, not like someone reading a spec sheet.\n- Short to medium sentences, natural flow, easy to follow by ear.\n- No markdown, no bullet symbols, no headers, no line breaks — just flowing narration.\n- No URLs.\n- Keep technical names in English (repository name, libraries, functions, commands).\n\nSTRICT RULES:\n- Never invent features, files, APIs, or architecture that aren't in the README.\n- Ideas for standing out must be grounded in what the tool actually does — creative framing is fine, fabricated capabilities are not.\n- If the README tool fails or the repository is unclear, reply in Arabic: \"لم أتمكن من العثور على معلومات عن هذا المشروع.\"\n- Call the GitHub README tool exactly once per request.",
+          "maxIterations": 10,
+          "passthroughBinaryImages": true,
+          "passthroughBinaryPdfs": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -128,
+        -96
+      ],
+      "id": "a716bf27-db83-4df6-9cbf-59c70038d2c3",
+      "name": "AI Agent",
+      "retryOnFail": false,
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.6-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        -288,
+        160
+      ],
+      "id": "afcdccb2-9d69-4912-9a44-cdc7d646c239",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wbnbLnJZ9ckbi52a",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const maxChunkSize = 4000;\nconst fullText = $json.output || \"\";\n\n// The model writes *bold* and _italic_ using plain characters, which is\n// fragile: if it ever leaves one unmatched (very common with repo names\n// containing underscores), Telegram's Markdown parser rejects the whole\n// message with \"can't parse entities\". To make this bulletproof, we do NOT\n// rely on the model's own markdown being balanced. Instead: escape any raw\n// HTML special characters first, then deterministically convert *word* and\n// _word_ pairs into proper <b> / <i> tags ourselves. Any leftover stray\n// asterisk/underscore that never found a partner is simply left as a plain,\n// harmless character (Telegram's HTML mode does not error on stray text).\nfunction toTelegramHtml(text) {\n  let out = text\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\");\n\n  // *bold* -> <b>bold</b> (single line only, non-greedy)\n  out = out.replace(/\\*([^\\n*]+?)\\*/g, \"<b>$1</b>\");\n\n  // _italic_ -> <i>italic</i>, but never inside a word (avoids breaking\n  // underscores that are part of repo names or URLs like owner/repo_name)\n  out = out.replace(/(^|[^a-zA-Z0-9_])_([^\\n_]+?)_(?![a-zA-Z0-9_])/g, \"$1<i>$2</i>\");\n\n  return out;\n}\n\nconst htmlText = toTelegramHtml(fullText);\n\n// Split on paragraph boundaries (blank lines) so a chunk never cuts\n// an HTML tag in half.\nconst paragraphs = htmlText.split(/\\n\\n+/).filter(p => p.trim().length > 0);\nconst chunks = [];\nlet current = \"\";\n\nfor (const para of paragraphs) {\n  const candidate = current ? current + \"\\n\\n\" + para : para;\n\n  if (candidate.length > maxChunkSize && current) {\n    chunks.push({ json: { chunk: current } });\n    current = para;\n  } else {\n    current = candidate;\n  }\n\n  // Edge case: a single paragraph is itself longer than maxChunkSize.\n  while (current.length > maxChunkSize) {\n    chunks.push({ json: { chunk: current.substring(0, maxChunkSize) } });\n    current = current.substring(maxChunkSize);\n  }\n}\n\nif (current) {\n  chunks.push({ json: { chunk: current } });\n}\n\nreturn chunks;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        -256
+      ],
+      "id": "ebd781e5-ab24-40a5-850d-e85336870ea2",
+      "name": "LIMIT_SIZE_OF_TELEGRAM_MESSAGE"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        -864,
+        -80
+      ],
+      "id": "41f5fde7-cb65-41bc-a0a4-49403a689ceb",
+      "name": "Telegram Trigger",
+      "webhookId": "YOUR_WEBHOOK_ID",
+      "credentials": {
+        "telegramApi": {
+          "id": "ZF5gA2s6T9JGHvps",
+          "name": "Telegram account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "59db58fc-bfdf-4ef9-88c2-2faa49e2117c",
+              "leftValue": "={{ !/https?:\\/\\/\\S+\\.(png|jpg|jpeg|webp)(\\?[^\\s]*)?/i.test($json.output || '') }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        256,
+        -96
+      ],
+      "id": "e9fa7139-f9b3-4b22-ba22-60328143aada",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "binaryData": true,
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        944,
+        16
+      ],
+      "id": "1a8e91d2-5102-4032-b98e-fc418f3c9a48",
+      "name": "Send a photo message",
+      "webhookId": "YOUR_WEBHOOK_ID",
+      "credentials": {
+        "telegramApi": {
+          "id": "ZF5gA2s6T9JGHvps",
+          "name": "Telegram account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "GIT",
+        "contextWindowLength": 100
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        -128,
+        160
+      ],
+      "id": "38e96544-2c04-4e48-8f72-8d9fd8b58882",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Use this tool ONLY for text-based information, questions, or research. NEVER use this tool if the user is asking for an image, picture, drawing, or diagram — use the image generation tool for that instead.",
+        "modelId": {
+          "__rl": true,
+          "value": "qwen3.7-flash",
+          "mode": "list",
+          "cachedResultName": "qwen3.7-flash"
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "content": "={{ $fromAI('query', 'The specific question or repo info to search/explain', 'string') }}"
+            }
+          ]
+        },
+        "simplify": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Simplify_Output', ``, 'boolean') }}",
+        "options": {
+          "enableSearch": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Enable_Search', ``, 'boolean') }}",
+          "system": "You are a research assistant specialized in analyzing GitHub repositories and technical documentation.   Your job is to answer questions about a specific repository: its purpose, architecture, technologies used, dependencies, installation steps, or any other technical detail requested.  Rules: - Always use Google Search and/or URL Context to verify information before answering — never rely only on prior knowledge, since repos change often. - If a repo URL or name is provided, prioritize fetching and reading its actual README, wiki, or source files via URL Context. - Be concise and factual. Answer in clear, structured text (bullet points when useful). - If you cannot find reliable information, say so clearly instead of guessing. - Always answer in the same language as the question asked (Arabic, French, or English). - Do not add unnecessary greetings or closing remarks — go straight to the answer, since your output will be reused by another AI agent."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.alibabaCloudTool",
+      "typeVersion": 1.1,
+      "position": [
+        160,
+        160
+      ],
+      "id": "9e12f137-3419-4f8c-9599-8a5a7f536e37",
+      "name": "Search",
+      "credentials": {
+        "alibabaCloudApi": {
+          "id": "Xa5CXKnHRHmeBVIl",
+          "name": "Qwen Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Use this tool to generate an explanatory or illustrative image that helps the user visually understand a concept, architecture, or workflow related to a GitHub repository (e.g. a diagram of components, a conceptual illustration of how something works, or a visual summary). Provide a clear, detailed description of what the image should show.",
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "qwen-image-2.0",
+          "mode": "list",
+          "cachedResultName": "qwen-image-2.0"
+        },
+        "prompt": "={{ $fromAI('image_description', 'A detailed visual description of the diagram or illustration to generate, based on the repo concept the user wants to understand', 'string') }}",
+        "imageOptions": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.alibabaCloudTool",
+      "typeVersion": 1.1,
+      "position": [
+        16,
+        160
+      ],
+      "id": "78ef157d-0757-46f1-8f52-35f0f7edbbfe",
+      "name": "Gen_IMG",
+      "credentials": {
+        "alibabaCloudApi": {
+          "id": "Xa5CXKnHRHmeBVIl",
+          "name": "Qwen Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.output || \"\";\nconst match = text.match(/https?:\\/\\/\\S+\\.(png|jpg|jpeg|webp)(\\?[^\\s]*)?/i);\nreturn [{ json: { imageUrl: match ? match[0] : null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        96
+      ],
+      "id": "6554eb10-767a-4122-a538-6c1a6edebf59",
+      "name": "Separation de url et les mots"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.chunk }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        944,
+        -160
+      ],
+      "id": "594c3417-3098-456e-a618-fb361e57347d",
+      "name": "Send a text message",
+      "webhookId": "YOUR_WEBHOOK_ID",
+      "credentials": {
+        "telegramApi": {
+          "id": "ZF5gA2s6T9JGHvps",
+          "name": "Telegram account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.imageUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        96
+      ],
+      "id": "cdadd34b-e4db-4d38-ae5b-379b71747bb4",
+      "name": "Telechargement image avant d'importer au telegram"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d721c930-d71a-4525-8700-25670b4a52a5",
+              "leftValue": "={{ !/صوت|بالصوت|audio|voice/i.test($json.message.text || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -576,
+        -80
+      ],
+      "id": "67c27e80-fc8a-4dbd-89d0-175ca2dae3aa",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "You are a Telegram bot that explains GitHub repositories using spoken Arabic audio.\n\nBefore writing ANY text, you must first call the GitHub README tool. Do not skip this step under any circumstances, even if you are confident about the answer.\nYou have exactly 1 tool:\n- GitHub README tool: fetches the README of a public GitHub repository.\n\nMANDATORY: You must call the GitHub README tool for every single request, with no exceptions, before writing anything. Never answer from your own knowledge, even if you think you already know the repository.\n\nSTEPS:\n1. Extract the repository owner/name from the user's message.\n2. Call the GitHub README tool.\n3. Read the ENTIRE README content carefully.\n4. Write ONE detailed, coherent paragraph in Modern Standard Arabic that goes beyond a surface-level summary. Cover:\n   - what the project is and the specific problem it solves\n   - its main features and capabilities (mention at least 2-3 concrete ones from the README, not generic statements)\n   - how it works or how it is used (setup, integration, or workflow, if described)\n   - what makes it different from similar tools, if the README mentions this\n\nTEXT RULES (this paragraph will be read aloud by a voice, not shown as a written message):\n- Plain spoken Arabic, natural, detailed but easy to follow when heard.\n- One single paragraph, no line breaks, no markdown, no bullet points, no headers.\n- No URLs.\n- Keep technical names in English (repository name, libraries, functions, commands).\n- Aim for a thorough explanation, not a one-line summary — at least 6-8 sentences worth of content.\n\nSTRICT RULES:\n- Never invent features, files, APIs, or architecture. Use only what the README tool returned.\n- If the README tool fails or the repository is unclear, reply in Arabic: \"لم أتمكن من العثور على معلومات عن هذا المشروع.\"\n- Call the GitHub README tool exactly once per request.",
+          "passthroughBinaryImages": true,
+          "passthroughBinaryPdfs": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -128,
+        336
+      ],
+      "id": "f192668d-38fc-4bff-a8a1-7541bb56c27f",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "GI",
+        "contextWindowLength": 100
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        -64,
+        512
+      ],
+      "id": "e800d2f1-bc68-4e94-a7b2-c844f0bed570",
+      "name": "Simple Memory1"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Fetch the README of a public GitHub repository. Use it BEFORE creating the video, to get real information about what the project does. Input: owner and repo name taken from the user's message or link.",
+        "url": "=https://api.github.com/repos/{{ $fromAI('owner', 'GitHub owner, e.g. BerriAI') }}/{{ $fromAI('repo', 'Repository name, e.g. litellm') }}/readme",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw+json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        128,
+        512
+      ],
+      "id": "5c11940a-659b-4c39-927f-fb692ad55113",
+      "name": "GitHub README tool"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        512
+      ],
+      "id": "62646f0d-ddf0-4bcf-b650-a29488c90595",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wbnbLnJZ9ckbi52a",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAudio",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "binaryData": true,
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        336
+      ],
+      "id": "84176c7b-0776-4e6f-8583-167b8549a0de",
+      "name": "Send an audio file",
+      "webhookId": "YOUR_WEBHOOK_ID",
+      "credentials": {
+        "telegramApi": {
+          "id": "ZF5gA2s6T9JGHvps",
+          "name": "Telegram account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "speech",
+        "voice": {
+          "__rl": true,
+          "value": "JBFqnCBsd6RMkjVDRZzb",
+          "mode": "list",
+          "cachedResultName": "George - Warm, Captivating Storyteller"
+        },
+        "text": "={{ $json.output }}",
+        "additionalOptions": {},
+        "requestOptions": {}
+      },
+      "type": "@elevenlabs/n8n-nodes-elevenlabs.elevenLabs",
+      "typeVersion": 1,
+      "position": [
+        256,
+        336
+      ],
+      "id": "7fcd5e10-b635-4d44-b9a1-e99bfc3107ad",
+      "name": "Convert text to speech",
+      "credentials": {
+        "elevenLabsApi": {
+          "id": "pfHXLKcdEeenpvNH",
+          "name": "ElevenLabs account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "LIMIT_SIZE_OF_TELEGRAM_MESSAGE": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "LIMIT_SIZE_OF_TELEGRAM_MESSAGE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Separation de url et les mots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gen_IMG": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separation de url et les mots": {
+      "main": [
+        [
+          {
+            "node": "Telechargement image avant d'importer au telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telechargement image avant d'importer au telegram": {
+      "main": [
+        [
+          {
+            "node": "Send a photo message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Convert text to speech",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub README tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert text to speech": {
+      "main": [
+        [
+          {
+            "node": "Send an audio file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ebbd0e74-4cad-4925-9e5c-f1d4df8c4d5c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "hP3Y0vV58PUHniwx",
+  "tags": []
+}
