@@ -1,0 +1,21 @@
+# Environment & secrets
+.env
+.env.local
+*.key
+*.pem
+
+# n8n local runtime files
+.n8n/
+n8n_data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
